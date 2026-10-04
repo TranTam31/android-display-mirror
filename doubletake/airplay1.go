@@ -37,19 +37,57 @@ func parseTransportServerPort(transport string) int {
 	return 0
 }
 
+// dataPortFromSetupPlist digs the video data port out of a binary-plist SETUP
+// response. HiChip/hccast-class clones (the ones that spoof AppleTV3,2 and show
+// "FSCAST") answer the legacy /video SETUP with a plist body instead of a
+// Transport header with server_port, so the header regex finds nothing. The
+// port can sit in a modern streams[] descriptor or as a flat key depending on
+// the firmware, so try both and dump the whole plist for diagnosis.
+func dataPortFromSetupPlist(body []byte) int {
+	var resp map[string]interface{}
+	if _, err := plist.Unmarshal(body, &resp); err != nil {
+		dbg("[AIRPLAY1] SETUP body is not a plist (%d bytes): %v", len(body), err)
+		return 0
+	}
+	debugDumpPlist("airplay1 SETUP response", resp)
+
+	if streams, ok := resp["streams"].([]interface{}); ok {
+		for _, s := range streams {
+			if stream, ok := s.(map[string]interface{}); ok {
+				if dp, _ := plistStreamPorts(stream); dp > 0 {
+					dbg("[AIRPLAY1] data port from streams[]: %d", dp)
+					return dp
+				}
+			}
+		}
+	}
+
+	for _, k := range []string{"dataPort", "data_port", "server_port", "serverPort", "port"} {
+		if p := plistInt(resp[k]); p > 0 {
+			dbg("[AIRPLAY1] data port from top-level %q: %d", k, p)
+			return p
+		}
+	}
+	return 0
+}
+
 func (c *AirPlayClient) SetupMirrorAirPlay1(ctx context.Context) (*MirrorSession, error) {
 	videoURI := fmt.Sprintf("rtsp://%s:%d/video", c.host, c.port)
 	setupHeaders := map[string]string{
 		"Transport": "RTP/AVP/TCP;unicast;interleaved=0-1;mode=screen",
 	}
 
-	_, respHeaders, err := airplay1Request(c, "SETUP", videoURI, "", nil, setupHeaders)
+	respBody, respHeaders, err := airplay1Request(c, "SETUP", videoURI, "", nil, setupHeaders)
 	if err != nil {
 		return nil, fmt.Errorf("airplay1 SETUP /video: %w", err)
 	}
 	dataPort := parseTransportServerPort(respHeaders["transport"])
+	if dataPort == 0 && len(respBody) > 0 {
+		// legacy clones answer with a binary plist instead of a Transport header
+		dataPort = dataPortFromSetupPlist(respBody)
+	}
 	if dataPort == 0 {
-		return nil, fmt.Errorf("airplay1 SETUP /video: no server_port in response (headers=%+v)", respHeaders)
+		return nil, fmt.Errorf("airplay1 SETUP /video: no server_port in response (headers=%+v, body=%d bytes)", respHeaders, len(respBody))
 	}
 	dbg("[AIRPLAY1] /video SETUP returned server_port=%d", dataPort)
 
