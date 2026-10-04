@@ -51,10 +51,22 @@ public class AirPlayEncoder {
       screenHeight = height;
       screenDpi = 160;
 
+      // Cap encode resolution to 720p for weak 2.4GHz receivers (HiChip/FSCAST
+      // clones): a full 1080p stream with ~160KB IDR keyframes overruns the link
+      // and the data socket write times out mid-keyframe. The receiver scales the
+      // smaller picture back up from the SPS, exactly like iOS sends sub-display
+      // resolution over constrained links.
+      final int maxW = 1280, maxH = 720;
+      if (screenWidth > maxW || screenHeight > maxH) {
+        float scale = Math.min((float) maxW / screenWidth, (float) maxH / screenHeight);
+        screenWidth = (Math.round(screenWidth * scale) / 2) * 2; // keep even dims
+        screenHeight = (Math.round(screenHeight * scale) / 2) * 2;
+      }
+
       MediaFormat format =
           MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, screenWidth, screenHeight);
       boolean airplay1 = Pref.getAirPlay1Mode();
-      format.setInteger(MediaFormat.KEY_BIT_RATE, airplay1 ? 4_000_000 : 8_000_000);
+      format.setInteger(MediaFormat.KEY_BIT_RATE, airplay1 ? 4_000_000 : 3_000_000);
       format.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
       format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, airplay1 ? 1 : 3);
       format.setInteger(

@@ -31,6 +31,12 @@ sed -i 's|deriveStreamMasterKey(c.fpAesKey, sharedSecret(c.PairKeys), c.encrypte
 sed -i 's|if c.encrypted \&\& len(sharedSecret(c.PairKeys)) > 0 {|if len(sharedSecret(c.PairKeys)) > 0 {|' internal/airplay/fairplay.go
 sed -i 's|return fmt.Errorf("SETUP response omitted eventPort")|if !modernControlSetup { dbg("[EVENT] receiver omitted eventPort, continuing without event channel"); return nil }\n\t\treturn fmt.Errorf("SETUP response omitted eventPort")|' internal/airplay/mirror.go
 
+# weak 2.4GHz receivers (HiChip/FSCAST) can't drain a big IDR within the stock
+# 1-2s video write deadline, so a keyframe kills the session with i/o timeout.
+# Give the data socket writes a 10s grace window.
+sed -i 's|SetWriteDeadline(time.Now().Add(1 \* time\.Second))|SetWriteDeadline(time.Now().Add(10 * time.Second))|' internal/airplay/mirror.go
+sed -i 's|SetWriteDeadline(time.Now().Add(2 \* time\.Second))|SetWriteDeadline(time.Now().Add(10 * time.Second))|' internal/airplay/mirror.go
+
 # might rewrite entire thing
 go get golang.org/x/mobile/bind 2>/dev/null || true;
 gomobile bind -v -trimpath -ldflags="-buildid= -extldflags=-Wl,-z,max-page-size=16384" -target android -androidapi 26 -o $OUT_DIR/airplaylib.aar ./airplaylib/ # -overlay $(realpath ../overlay.json)
