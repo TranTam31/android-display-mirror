@@ -75,13 +75,14 @@ public class AirPlayEncoder {
         format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
       }
       format.setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0);
-      if (airplay1) {
-        // baseline@4.0 is the only profile/level combo that clears
-        // every known third-party decoder quirk. See AIRPIN.md.
-        format.setInteger(
-            MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline);
-        format.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel4);
-      }
+      // baseline@4.0 is the only profile/level combo that clears every known
+      // third-party decoder quirk (see AIRPIN.md). Apply it in airplay2 too:
+      // without it the encoder emits a High@L1.0 SPS (67 64 00 0a), and strict
+      // clone decoders (HiChip/FSCAST) stall the video socket on the first big
+      // scene-change IDR because their buffer model is sized for level 1.0.
+      format.setInteger(
+          MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline);
+      format.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel4);
 
       codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
       codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
